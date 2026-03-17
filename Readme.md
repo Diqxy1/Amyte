@@ -8,7 +8,7 @@
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-[**➕ Adicionar ao servidor**](https://discord.com/oauth2/authorize?client_id=1483520532866531390&permissions=8&integration_type=0&scope=bot+applications.commands) • [**top.gg**](https://top.gg/bot/SEU_CLIENT_ID) • [**Suporte**](https://discord.gg/SEU_INVITE)
+[**➕ Adicionar ao servidor**](https://discord.com/oauth2/authorize?client_id=1483520532866531390&permissions=8&integration_type=0&scope=bot+applications.commands) • [**top.gg**](https://top.gg/bot/1483520532866531390) • [**Suporte**](https://discord.com/invite/zaGrCQU3uG)
 
 </div>
 
