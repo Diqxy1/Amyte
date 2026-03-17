@@ -123,6 +123,21 @@ async def _fetch_riot_client_token(ssid: str, session: aiohttp.ClientSession) ->
     if "ssid" not in cookies:
         raise InvalidCookieError("Cookie ssid nao encontrado.")
 
+    # Se o ssid for um JWT (começa com eyJ), extrai o valor real do campo interno "ssid"
+    # A Riot armazena o ssid como JWT mas o valor que o auth server aceita é o campo interno
+    raw_ssid = cookies["ssid"]
+    if raw_ssid.startswith("eyJ") and raw_ssid.count(".") == 2:
+        try:
+            import base64 as _b64, json as _j
+            payload_b64 = raw_ssid.split(".")[1]
+            payload_b64 += "=" * (-len(payload_b64) % 4)
+            payload = _j.loads(_b64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+            if "ssid" in payload:
+                log.debug("ssid e JWT, extraindo valor interno: %s", payload["ssid"][:20])
+                cookies["ssid"] = payload["ssid"]
+        except Exception as exc:
+            log.warning("Falha ao extrair ssid do JWT: %s", exc)
+
     init_payload = {
         "acr_values": "urn:riot:bronze",
         "claims": "",

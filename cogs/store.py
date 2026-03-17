@@ -42,11 +42,13 @@ _SSID_GUIDE = """
 **1.** Acesse `https://auth.riotgames.com` e faça login
 **2.** Pressione **F12** → aba **Application** (Chrome/Edge) ou **Storage** (Firefox)
 **3.** Expanda **Cookies** → clique em `https://auth.riotgames.com`
-**4.** Copie o **valor** desses 3 cookies e cole no formato abaixo:
+**4.** Copie o **valor** desses 3 cookies e responda no formato:
 
 ```
 ssid=VALOR,tdid=VALOR,__Secure-session_state=VALOR
 ```
+
+💡 **Dica:** O valor do `ssid` pode começar com `eyJ...` — cole assim mesmo, funciona!
 
 > ⚠️ **Aviso de segurança**
 > Esses cookies concedem acesso temporário à sua conta Riot.
@@ -179,7 +181,7 @@ class StoreCog(commands.Cog, name="Loja"):
         """Fluxo para slash commands — usa ephemeral + DM."""
         # Responde imediatamente para não deixar o Discord expirar a interação
         await interaction.response.send_message(
-            "📨 Enviei as instruções no seu privado! Responde por lá.",
+            "📨 Enviei as instruções no seu privado! Responda por lá.",
             ephemeral=True,
         )
 
