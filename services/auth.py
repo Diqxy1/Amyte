@@ -1,17 +1,9 @@
-"""
-Serviço de autenticação da Riot para a API do Valorant.
-
-Fluxo em duas etapas para gerar token com cid=riot-client:
-  1. POST /api/v1/authorization com client_id=riot-client
-  2. PUT /api/v1/authorization reutilizando o ssid via cookies
-"""
-
+import asyncio
 import base64
 import json as _json
 import logging
 import urllib.parse
 from dataclasses import dataclass
-import asyncio  # noqa: E402 — importado aqui para evitar circular no topo
 
 import aiohttp
 
@@ -44,13 +36,19 @@ class RiotTokens:
     game_name: str
     tag_line: str
     client_version: str  # necessário para X-Riot-ClientVersion
+    discord_name: str = ""  # nome Discord — fallback se game_name não vier
 
 
-async def authenticate_with_ssid(ssid: str, session: aiohttp.ClientSession) -> RiotTokens:
+async def authenticate_with_ssid(
+    ssid: str,
+    session: aiohttp.ClientSession,
+    discord_name: str = "",
+) -> RiotTokens:
     """
     Autentica via cookie ssid e retorna tokens com cid=riot-client,
     necessários para acessar a API da loja do Valorant.
     """
+
     # Busca versão do cliente em paralelo com a autenticação
     access_token, client_version = await asyncio.gather(
         _fetch_riot_client_token(ssid, session),
@@ -63,18 +61,27 @@ async def authenticate_with_ssid(ssid: str, session: aiohttp.ClientSession) -> R
 
     entitlements_token = await _fetch_entitlements(access_token, session)
 
-    user_id   = payload.get("sub", "")
+    user_id = payload.get("sub", "")
+
+    # Tenta extrair do payload primeiro (token web tem acct, riot-client não tem)
     acct      = payload.get("acct", {})
-    game_name = acct.get("game_name", "Agente")
+    game_name = acct.get("game_name", "")
     tag_line  = acct.get("tag_line", "")
+
+    # Se não veio no payload, busca via name-service do PD
+    if not game_name:
+        game_name, tag_line = await _fetch_name_from_pd(
+            access_token, entitlements_token, client_version, user_id, session
+        )
 
     return RiotTokens(
         access_token=access_token,
         entitlements_token=entitlements_token,
         user_id=user_id,
-        game_name=game_name,
+        game_name=game_name or "Agente",
         tag_line=tag_line,
         client_version=client_version,
+        discord_name=discord_name,
     )
 
 
@@ -184,3 +191,44 @@ async def _fetch_entitlements(access_token: str, session: aiohttp.ClientSession)
         return data["entitlements_token"]
     except KeyError as exc:
         raise AuthenticationError("Falha ao obter entitlements_token.") from exc
+
+
+async def _fetch_name_from_pd(
+    access_token: str,
+    entitlements_token: str,
+    client_version: str,
+    user_id: str,
+    session: aiohttp.ClientSession,
+) -> tuple[str, str]:
+    """
+    Busca game_name e tag_line via name-service do PD.
+    Usa a região BR como padrão — funciona para lookup por PUUID.
+    """
+    _CLIENT_PLATFORM = (
+        "ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjogIldpbmRvd3MiLA0KCSJwbGF0Zm9y"
+        "bU9TVmVyc2lvbiI6ICIxMC4wLjE5MDQyLjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0IjogIlVu"
+        "a25vd24iDQp9"
+    )
+    headers = {
+        **_HEADERS,
+        "Authorization": f"Bearer {access_token}",
+        "X-Riot-Entitlements-JWT": entitlements_token,
+        "X-Riot-ClientVersion": client_version,
+        "X-Riot-ClientPlatform": _CLIENT_PLATFORM,
+    }
+    try:
+        url = "https://pd.na.a.pvp.net/name-service/v2/players"
+        async with session.put(url, headers=headers, json=[user_id]) as r:
+            if r.status == 200:
+                data = await r.json(content_type=None)
+                if data and isinstance(data, list):
+                    player = data[0]
+                    game_name = player.get("GameName", "")
+                    tag_line  = player.get("TagLine", "")
+                    if game_name:
+                        log.info("Nome obtido via name-service: %s#%s", game_name, tag_line)
+                        return game_name, tag_line
+            log.warning("name-service retornou %s", r.status)
+    except Exception as exc:
+        log.warning("Falha ao buscar nome via name-service: %s", exc)
+    return "", ""
