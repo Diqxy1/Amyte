@@ -37,21 +37,24 @@ _REGION_CHOICES = [
 ]
 
 _SSID_GUIDE = """
-🔐 **Como obter seu cookie `ssid`**
+🔐 **Como autenticar no bot**
 
-**1.** Abra seu navegador e acesse: `https://auth.riotgames.com`
-**2.** Faça login com sua conta Riot Games
-**3.** Pressione **F12** para abrir o DevTools
-**4.** Vá na aba **Application** (Chrome/Edge) ou **Storage** (Firefox)
-**5.** Expanda **Cookies** → clique em `https://auth.riotgames.com`
-**6.** Encontre o cookie `ssid` e copie o **valor** completo
+**1.** Acesse `https://auth.riotgames.com` e faça login
+**2.** Pressione **F12** → aba **Application** (Chrome/Edge) ou **Storage** (Firefox)
+**3.** Expanda **Cookies** → clique em `https://auth.riotgames.com`
+
+**Opção A — `__Secure-access_token`** ✅ Recomendado
+Cole o valor do cookie `__Secure-access_token` *(começa com `eyJ`, é bem longo)*
+
+**Opção B — `ssid`**
+Cole o valor do cookie `ssid` *(pode começar com `eyJ` também)*
 
 > ⚠️ **Aviso de segurança**
-> O `ssid` concede acesso temporário à sua conta Riot.
-> Este bot é **open source** e não armazena seu ssid.
+> Esses tokens concedem acesso temporário à sua conta Riot.
+> Este bot é **open source** e **não armazena** nenhum dado.
 > Sua mensagem será **deletada automaticamente**.
 
-📨 **Responda com o valor do `ssid`** *(2 minutos)*:
+📨 **Responda com o valor do token** *(2 minutos)*:
 """
 
 
@@ -177,7 +180,7 @@ class StoreCog(commands.Cog, name="Loja"):
         """Fluxo para slash commands — usa ephemeral + DM."""
         # Responde imediatamente para não deixar o Discord expirar a interação
         await interaction.response.send_message(
-            "📨 Enviei as instruções no seu privado! Responda por lá.",
+            "📨 Enviei as instruções no seu privado! Responda por lá com seu `ssid`.",
             ephemeral=True,
         )
 

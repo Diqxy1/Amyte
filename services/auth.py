@@ -35,8 +35,8 @@ class RiotTokens:
     user_id: str
     game_name: str
     tag_line: str
-    client_version: str  # necessário para X-Riot-ClientVersion
-    discord_name: str = ""  # nome Discord — fallback se game_name não vier
+    client_version: str
+    discord_name: str = ""
 
 
 async def authenticate_with_ssid(
@@ -45,99 +45,122 @@ async def authenticate_with_ssid(
     discord_name: str = "",
 ) -> RiotTokens:
     """
-    Autentica via cookie ssid e retorna tokens com cid=riot-client,
-    necessários para acessar a API da loja do Valorant.
+    Autentica via cookie ssid usando play-valorant-web-prod.
+    Aceita o valor raw do ssid ou um JWT (extrai o valor interno).
     """
+    ssid = _extract_ssid_value(ssid.strip())
 
-    # Busca versão do cliente em paralelo com a autenticação
     access_token, client_version = await asyncio.gather(
-        _fetch_riot_client_token(ssid, session),
+        _fetch_token(ssid, session),
         _fetch_client_version(session),
     )
 
-    payload = _decode_jwt_payload(access_token)
-    cid = payload.get("cid", "unknown")
-    log.info("Token obtido — cid=%s sub=%s", cid, payload.get("sub", "?"))
-
     entitlements_token = await _fetch_entitlements(access_token, session)
 
-    user_id = payload.get("sub", "")
-
-    # Tenta extrair do payload primeiro (token web tem acct, riot-client não tem)
+    payload   = _decode_jwt_payload(access_token)
+    user_id   = payload.get("sub", "")
     acct      = payload.get("acct", {})
     game_name = acct.get("game_name", "")
     tag_line  = acct.get("tag_line", "")
 
-    # Se não veio no payload, busca via name-service do PD
+    # Se o token web não trouxer game_name, busca via name-service
     if not game_name:
-        game_name, tag_line = await _fetch_name_from_pd(
+        game_name, tag_line = await _fetch_name(
             access_token, entitlements_token, client_version, user_id, session
         )
+
+    log.info("Auth ok — cid=%s user=%s#%s", payload.get("cid"), game_name, tag_line)
 
     return RiotTokens(
         access_token=access_token,
         entitlements_token=entitlements_token,
         user_id=user_id,
-        game_name=game_name or "Agente",
-        tag_line=tag_line,
+        game_name=game_name or "",
+        tag_line=tag_line or "",
         client_version=client_version,
         discord_name=discord_name,
     )
 
 
-async def _fetch_client_version(session: aiohttp.ClientSession) -> str:
-    """Busca a versão atual do Riot Client via valorant-api.com."""
-    try:
-        async with session.get(_VERSION_URL) as r:
-            data = await r.json(content_type=None)
-        version = data["data"]["riotClientVersion"]
-        log.info("Client version: %s", version)
-        return version
-    except Exception as exc:
-        log.warning("Falha ao buscar client version: %s — usando fallback", exc)
-        return "release-09.11-shipping-24-2600985"
+# ------------------------------------------------------------------ #
+#  Helpers                                                             #
+# ------------------------------------------------------------------ #
+
+def _extract_ssid_value(raw: str) -> str:
+    """
+    Extrai o valor real do ssid.
+    Se for um JWT (eyJ...), pega o campo 'ssid' do payload.
+    """
+    if raw.startswith("eyJ") and raw.count(".") == 2:
+        try:
+            p = raw.split(".")[1]
+            p += "=" * (-len(p) % 4)
+            payload = _json.loads(base64.urlsafe_b64decode(p).decode("utf-8"))
+            if "ssid" in payload:
+                log.info("ssid é JWT, extraindo valor interno...")
+                return payload["ssid"]
+        except Exception as exc:
+            log.warning("Falha ao extrair ssid do JWT: %s", exc)
+    return raw
 
 
-async def _fetch_riot_client_token(ssid: str, session: aiohttp.ClientSession) -> str:
-    """Troca o ssid por um access_token com cid=riot-client em duas etapas."""
-    cookies = {"ssid": ssid}
+async def _fetch_token(raw_input: str, session: aiohttp.ClientSession) -> str:
+    """
+    Obtém access_token a partir do input do usuário.
 
-    # Etapa 1 — inicia o fluxo com client_id=riot-client
-    init_payload = {
-        "acr_values": "urn:riot:bronze",
-        "claims": "",
-        "client_id": "riot-client",
-        "nonce": "oYnVwCSrdompeBzJFZXZiBHR",
-        "redirect_uri": "http://localhost/redirect",
+    Aceita dois formatos:
+      1. Cookie ssid (valor raw ou JWT) — faz o fluxo OAuth
+      2. __Secure-access_token direto (JWT longo) — usa diretamente
+
+    O __Secure-access_token é preferível porque não depende de IP
+    e não precisa de etapa 2, evitando auth_failure em servidores fora do BR.
+    """
+    # Se o input tiver 3 partes JWT e for longo (>200 chars), é um access_token direto
+    parts = raw_input.split(".")
+    if len(parts) == 3 and len(raw_input) > 200:
+        try:
+            payload = _decode_jwt_payload(raw_input)
+            cid = payload.get("cid", "")
+            log.info("Access token direto detectado — cid=%s", cid)
+            return raw_input
+        except Exception:
+            pass
+
+    # Caso contrário, trata como ssid e faz o fluxo OAuth
+    ssid = raw_input
+
+    payload = {
+        "client_id": "play-valorant-web-prod",
+        "nonce": "1",
+        "redirect_uri": "https://playvalorant.com/opt_in",
         "response_type": "token id_token",
-        "scope": "openid link ban lol_region account",
+        "scope": "account openid",
     }
 
     async with session.post(
         _AUTH_URL,
-        json=init_payload,
+        json=payload,
         headers=_HEADERS,
-        cookies=cookies,
+        cookies={"ssid": ssid},
         allow_redirects=False,
     ) as resp:
-        init_data = await resp.json(content_type=None)
+        data = await resp.json(content_type=None)
         resp_cookies = {k: v.value for k, v in resp.cookies.items()}
 
-    log.debug("Etapa 1 — type=%s", init_data.get("type"))
+    log.info("Etapa 1 type=%s error=%s", data.get("type"), data.get("error"))
 
-    if init_data.get("type") == "response":
-        uri = init_data["response"]["parameters"]["uri"]
-        return _extract_access_token_from_uri(uri)
+    if data.get("type") == "response":
+        return _extract_token_from_uri(data["response"]["parameters"]["uri"])
 
-    if init_data.get("type") == "error":
-        raise InvalidCookieError("Cookie ssid inválido ou expirado. Obtenha um novo ssid.")
-
-    if init_data.get("type") != "auth":
-        raise AuthenticationError(
-            f"Resposta inesperada na etapa 1 (type={init_data.get('type')!r})"
+    if data.get("type") == "error":
+        raise InvalidCookieError(
+            "Cookie ssid inválido ou expirado.\n"
+            "Tente usar o __Secure-access_token diretamente (veja as instruções)."
         )
 
-    # Etapa 2 — completa o fluxo reusando o ssid nos cookies
+    if data.get("type") != "auth":
+        raise AuthenticationError(f"Resposta inesperada: type={data.get('type')!r}")
+
     merged = {"ssid": ssid, **resp_cookies}
 
     async with session.put(
@@ -146,41 +169,31 @@ async def _fetch_riot_client_token(ssid: str, session: aiohttp.ClientSession) ->
         headers=_HEADERS,
         cookies=merged,
         allow_redirects=False,
-    ) as resp:
-        complete_data = await resp.json(content_type=None)
+    ) as resp2:
+        data2 = await resp2.json(content_type=None)
 
-    log.debug("Etapa 2 — type=%s", complete_data.get("type"))
+    log.info("Etapa 2 type=%s error=%s", data2.get("type"), data2.get("error"))
 
-    if complete_data.get("type") == "response":
-        uri = complete_data["response"]["parameters"]["uri"]
-        return _extract_access_token_from_uri(uri)
+    if data2.get("type") == "response":
+        return _extract_token_from_uri(data2["response"]["parameters"]["uri"])
 
-    if complete_data.get("type") == "error":
-        raise InvalidCookieError(
-            f"Falha na auth ({complete_data.get('error', '?')}). O ssid pode ter expirado."
-        )
-
-    raise AuthenticationError(
-        f"Resposta inesperada na etapa 2 (type={complete_data.get('type')!r}): {complete_data}"
+    raise InvalidCookieError(
+        "Autenticação falhou (possível bloqueio por IP do servidor).\n"
+        "Use o __Secure-access_token diretamente:\n"
+        "DevTools → Application → Cookies → auth.riotgames.com → __Secure-access_token"
     )
 
 
-def _decode_jwt_payload(token: str) -> dict:
+async def _fetch_client_version(session: aiohttp.ClientSession) -> str:
     try:
-        payload_b64 = token.split(".")[1]
-        payload_b64 += "=" * (-len(payload_b64) % 4)
-        return _json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+        async with session.get(_VERSION_URL) as r:
+            data = await r.json(content_type=None)
+        version = data["data"]["riotClientVersion"]
+        log.info("Client version: %s", version)
+        return version
     except Exception as exc:
-        raise AuthenticationError(f"Falha ao decodificar JWT: {exc}") from exc
-
-
-def _extract_access_token_from_uri(uri: str) -> str:
-    fragment = urllib.parse.urlparse(uri).fragment
-    params   = urllib.parse.parse_qs(fragment)
-    try:
-        return params["access_token"][0]
-    except (KeyError, IndexError) as exc:
-        raise AuthenticationError("access_token não encontrado na URI de redirect.") from exc
+        log.warning("Falha ao buscar client version: %s", exc)
+        return "release-09.11-shipping-24-2600985"
 
 
 async def _fetch_entitlements(access_token: str, session: aiohttp.ClientSession) -> str:
@@ -193,17 +206,14 @@ async def _fetch_entitlements(access_token: str, session: aiohttp.ClientSession)
         raise AuthenticationError("Falha ao obter entitlements_token.") from exc
 
 
-async def _fetch_name_from_pd(
+async def _fetch_name(
     access_token: str,
     entitlements_token: str,
     client_version: str,
     user_id: str,
     session: aiohttp.ClientSession,
 ) -> tuple[str, str]:
-    """
-    Busca game_name e tag_line via name-service do PD.
-    Usa a região BR como padrão — funciona para lookup por PUUID.
-    """
+    """Busca game_name e tag_line via name-service."""
     _CLIENT_PLATFORM = (
         "ew0KCSJwbGF0Zm9ybVR5cGUiOiAiUEMiLA0KCSJwbGF0Zm9ybU9TIjogIldpbmRvd3MiLA0KCSJwbGF0Zm9y"
         "bU9TVmVyc2lvbiI6ICIxMC4wLjE5MDQyLjEuMjU2LjY0Yml0IiwNCgkicGxhdGZvcm1DaGlwc2V0IjogIlVu"
@@ -217,18 +227,38 @@ async def _fetch_name_from_pd(
         "X-Riot-ClientPlatform": _CLIENT_PLATFORM,
     }
     try:
-        url = "https://pd.na.a.pvp.net/name-service/v2/players"
-        async with session.put(url, headers=headers, json=[user_id]) as r:
+        async with session.put(
+            "https://pd.na.a.pvp.net/name-service/v2/players",
+            headers=headers,
+            json=[user_id],
+        ) as r:
             if r.status == 200:
                 data = await r.json(content_type=None)
                 if data and isinstance(data, list):
-                    player = data[0]
-                    game_name = player.get("GameName", "")
-                    tag_line  = player.get("TagLine", "")
-                    if game_name:
-                        log.info("Nome obtido via name-service: %s#%s", game_name, tag_line)
-                        return game_name, tag_line
-            log.warning("name-service retornou %s", r.status)
+                    p = data[0]
+                    name = p.get("GameName", "")
+                    tag  = p.get("TagLine", "")
+                    if name:
+                        log.info("Nome obtido: %s#%s", name, tag)
+                        return name, tag
     except Exception as exc:
-        log.warning("Falha ao buscar nome via name-service: %s", exc)
+        log.warning("Falha ao buscar nome: %s", exc)
     return "", ""
+
+
+def _decode_jwt_payload(token: str) -> dict:
+    try:
+        p = token.split(".")[1]
+        p += "=" * (-len(p) % 4)
+        return _json.loads(base64.urlsafe_b64decode(p).decode("utf-8"))
+    except Exception as exc:
+        raise AuthenticationError(f"Falha ao decodificar JWT: {exc}") from exc
+
+
+def _extract_token_from_uri(uri: str) -> str:
+    fragment = urllib.parse.urlparse(uri).fragment
+    params   = urllib.parse.parse_qs(fragment)
+    try:
+        return params["access_token"][0]
+    except (KeyError, IndexError) as exc:
+        raise AuthenticationError("access_token não encontrado na URI.") from exc
