@@ -37,25 +37,22 @@ _REGION_CHOICES = [
 ]
 
 _SSID_GUIDE = """
-🔐 **Como autenticar no bot**
+🔐 **Para ver sua loja, preciso autenticar sua conta Riot.**
 
-**1.** Acesse `https://auth.riotgames.com` e faça login
-**2.** Pressione **F12** → aba **Application** (Chrome/Edge) ou **Storage** (Firefox)
-**3.** Expanda **Cookies** → clique em `https://auth.riotgames.com`
+👉 **[Clique aqui para fazer login]({login_url})**
 
-**Opção A — `__Secure-access_token`** ✅ Recomendado
-Cole o valor do cookie `__Secure-access_token` *(começa com `eyJ`, é bem longo)*
+Após o login, a página vai mostrar seu token automaticamente.
+Copie e cole aqui nesta conversa.
 
-**Opção B — `ssid`**
-Cole o valor do cookie `ssid` *(pode começar com `eyJ` também)*
-
-> ⚠️ **Aviso de segurança**
-> Esses tokens concedem acesso temporário à sua conta Riot.
-> Este bot é **open source** e **não armazena** nenhum dado.
+> ⚠️ **Segurança**
+> O token expira em ~1 hora e **não é armazenado** pelo bot.
 > Sua mensagem será **deletada automaticamente**.
 
-📨 **Responda com o valor do token** *(2 minutos)*:
+📨 **Cole o token aqui** *(2 minutos)*:
 """
+
+# URL da página de login — substitua pelo seu GitHub Pages
+_LOGIN_URL = "https://Diqxy1.github.io/valorant-store-bot"
 
 
 class WhereView(discord.ui.View):
@@ -286,7 +283,7 @@ class StoreCog(commands.Cog, name="Loja"):
     async def _request_ssid_dm(self, user: discord.User) -> str | None:
         """Envia guia e aguarda ssid — usado pelos slash commands."""
         try:
-            await user.send(_SSID_GUIDE)
+            await user.send(_SSID_GUIDE.format(login_url=_LOGIN_URL))
         except discord.Forbidden:
             return None
 
