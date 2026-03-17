@@ -177,7 +177,7 @@ class StoreCog(commands.Cog, name="Loja"):
         """Fluxo para slash commands — usa ephemeral + DM."""
         # Responde imediatamente para não deixar o Discord expirar a interação
         await interaction.response.send_message(
-            "📨 Enviei as instruções no seu privado! Responda por lá",
+            "📨 Enviei as instruções no seu privado! Responda por lá.",
             ephemeral=True,
         )
 
@@ -235,7 +235,7 @@ class StoreCog(commands.Cog, name="Loja"):
 
         async with aiohttp.ClientSession() as session:
             try:
-                tokens = await authenticate_with_ssid(ssid, session)
+                tokens = await authenticate_with_ssid(ssid, session, discord_name=str(user))
                 del ssid
 
                 service = StoreService(session)
@@ -264,16 +264,17 @@ class StoreCog(commands.Cog, name="Loja"):
 
         target = channel if destination == "channel" else user
 
+        dn = tokens.discord_name
         if mode == "store":
-            await self._send_store(target, data, tokens.game_name, tokens.tag_line)
+            await self._send_store(target, data, tokens)
         elif mode == "nightmarket":
-            await self._send_night_market(target, data, tokens.game_name, tokens.tag_line)
+            await self._send_night_market(target, data, tokens)
         elif mode == "wallet":
-            await target.send(embed=build_wallet_embed(data, tokens.game_name))
+            await target.send(embed=build_wallet_embed(data, tokens.game_name, tokens.tag_line, dn))
         elif mode == "rank":
-            await target.send(embed=build_rank_embed(data, tokens.game_name))
+            await target.send(embed=build_rank_embed(data, tokens.game_name, tokens.tag_line, dn))
         elif mode == "kcstore":
-            await self._send_kc_store(target, data, tokens.game_name, tokens.tag_line)
+            await self._send_kc_store(target, data, tokens)
 
     # ================================================================== #
     #  Coleta do ssid                                                      #
@@ -361,25 +362,28 @@ class StoreCog(commands.Cog, name="Loja"):
     #  Envio dos resultados                                                #
     # ================================================================== #
 
-    async def _send_store(self, target, store, player_name, tag) -> None:
-        await target.send(embed=build_store_header(player_name, tag))
-        for embed in build_store_embeds(store, player_name):
+    async def _send_store(self, target, store, tokens) -> None:
+        dn = tokens.discord_name
+        await target.send(embed=build_store_header(tokens.game_name, tokens.tag_line, dn))
+        for embed in build_store_embeds(store, tokens.game_name, tokens.tag_line, dn):
             await target.send(embed=embed)
 
-    async def _send_night_market(self, target, store, player_name, tag) -> None:
+    async def _send_night_market(self, target, store, tokens) -> None:
+        dn = tokens.discord_name
         if store.has_night_market:
-            await target.send(embed=build_night_market_header(player_name, tag))
-            for embed in build_night_market_embeds(store.night_market, player_name):
+            await target.send(embed=build_night_market_header(tokens.game_name, tokens.tag_line, dn))
+            for embed in build_night_market_embeds(store.night_market, tokens.game_name, tokens.tag_line, dn):
                 await target.send(embed=embed)
         else:
             await target.send(embed=build_no_night_market_embed())
 
-    async def _send_kc_store(self, target, kc_store, player_name, tag) -> None:
+    async def _send_kc_store(self, target, kc_store, tokens) -> None:
+        dn = tokens.discord_name
         if not kc_store.offers:
             await target.send(embed=build_kc_empty_embed())
             return
-        await target.send(embed=build_kc_store_header(player_name, tag, kc_store.remaining_hours))
-        for embed in build_kc_offer_embeds(kc_store, player_name):
+        await target.send(embed=build_kc_store_header(tokens.game_name, tokens.tag_line, kc_store.remaining_hours, dn))
+        for embed in build_kc_offer_embeds(kc_store, tokens.game_name, tokens.tag_line, dn):
             await target.send(embed=embed)
 
 
