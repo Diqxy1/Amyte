@@ -52,7 +52,7 @@ Copie e cole aqui nesta conversa.
 """
 
 # URL da página de login — substitua pelo seu GitHub Pages
-_LOGIN_URL = "https://Diqxy1.github.io/valorant-store-bot"
+_LOGIN_URL = "https://diqxy1.github.io/Amyte"
 
 
 class WhereView(discord.ui.View):
