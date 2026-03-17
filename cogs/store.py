@@ -177,7 +177,7 @@ class StoreCog(commands.Cog, name="Loja"):
         """Fluxo para slash commands — usa ephemeral + DM."""
         # Responde imediatamente para não deixar o Discord expirar a interação
         await interaction.response.send_message(
-            "📨 Enviei as instruções no seu privado! Responda por lá com seu `ssid`.",
+            "📨 Enviei as instruções no seu privado! Responda por lá.",
             ephemeral=True,
         )
 
