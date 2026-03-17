@@ -37,25 +37,21 @@ _REGION_CHOICES = [
 ]
 
 _SSID_GUIDE = """
-🔐 **Como autenticar — copie 3 cookies**
+🔐 **Como obter seu cookie `ssid`**
 
-**1.** Acesse `https://auth.riotgames.com` e faça login
-**2.** Pressione **F12** → aba **Application** (Chrome/Edge) ou **Storage** (Firefox)
-**3.** Expanda **Cookies** → clique em `https://auth.riotgames.com`
-**4.** Copie o **valor** desses 3 cookies e responda no formato:
-
-```
-ssid=VALOR,tdid=VALOR,__Secure-session_state=VALOR
-```
-
-💡 **Dica:** O valor do `ssid` pode começar com `eyJ...` — cole assim mesmo, funciona!
+**1.** Abra seu navegador e acesse: `https://auth.riotgames.com`
+**2.** Faça login com sua conta Riot Games
+**3.** Pressione **F12** para abrir o DevTools
+**4.** Vá na aba **Application** (Chrome/Edge) ou **Storage** (Firefox)
+**5.** Expanda **Cookies** → clique em `https://auth.riotgames.com`
+**6.** Encontre o cookie `ssid` e copie o **valor** completo
 
 > ⚠️ **Aviso de segurança**
-> Esses cookies concedem acesso temporário à sua conta Riot.
-> Este bot é **open source** e **não armazena** nenhum dado.
+> O `ssid` concede acesso temporário à sua conta Riot.
+> Este bot é **open source** e não armazena seu ssid.
 > Sua mensagem será **deletada automaticamente**.
 
-📨 **Responda com os cookies no formato acima** *(2 minutos)*:
+📨 **Responda com o valor do `ssid`** *(2 minutos)*:
 """
 
 

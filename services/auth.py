@@ -99,45 +99,10 @@ async def _fetch_client_version(session: aiohttp.ClientSession) -> str:
 
 
 async def _fetch_riot_client_token(ssid: str, session: aiohttp.ClientSession) -> str:
-    """
-    Troca cookies da Riot por um access_token com cid=riot-client.
+    """Troca o ssid por um access_token com cid=riot-client em duas etapas."""
+    cookies = {"ssid": ssid}
 
-    O usuário pode fornecer:
-      - Apenas o valor do ssid: "AbCdEf..."
-      - Múltiplos cookies: "ssid=val,tdid=val,__Secure-session_state=val"
-
-    Mais cookies = maior chance de autenticar sem pedir senha.
-    """
-    cookies: dict = {}
-    raw = ssid.strip()
-
-    if "=" in raw and "," in raw:
-        for part in raw.split(","):
-            part = part.strip()
-            if "=" in part:
-                k, _, v = part.partition("=")
-                cookies[k.strip()] = v.strip()
-    else:
-        cookies = {"ssid": raw}
-
-    if "ssid" not in cookies:
-        raise InvalidCookieError("Cookie ssid nao encontrado.")
-
-    # Se o ssid for um JWT (começa com eyJ), extrai o valor real do campo interno "ssid"
-    # A Riot armazena o ssid como JWT mas o valor que o auth server aceita é o campo interno
-    raw_ssid = cookies["ssid"]
-    if raw_ssid.startswith("eyJ") and raw_ssid.count(".") == 2:
-        try:
-            import base64 as _b64, json as _j
-            payload_b64 = raw_ssid.split(".")[1]
-            payload_b64 += "=" * (-len(payload_b64) % 4)
-            payload = _j.loads(_b64.urlsafe_b64decode(payload_b64).decode("utf-8"))
-            if "ssid" in payload:
-                log.debug("ssid e JWT, extraindo valor interno: %s", payload["ssid"][:20])
-                cookies["ssid"] = payload["ssid"]
-        except Exception as exc:
-            log.warning("Falha ao extrair ssid do JWT: %s", exc)
-
+    # Etapa 1 — inicia o fluxo com client_id=riot-client
     init_payload = {
         "acr_values": "urn:riot:bronze",
         "claims": "",
@@ -158,18 +123,22 @@ async def _fetch_riot_client_token(ssid: str, session: aiohttp.ClientSession) ->
         init_data = await resp.json(content_type=None)
         resp_cookies = {k: v.value for k, v in resp.cookies.items()}
 
-    log.debug("Etapa 1 type=%s cookies=%s", init_data.get("type"), list(cookies.keys()))
+    log.debug("Etapa 1 — type=%s", init_data.get("type"))
 
     if init_data.get("type") == "response":
-        return _extract_access_token_from_uri(init_data["response"]["parameters"]["uri"])
+        uri = init_data["response"]["parameters"]["uri"]
+        return _extract_access_token_from_uri(uri)
 
     if init_data.get("type") == "error":
-        raise InvalidCookieError("Cookie ssid invalido ou expirado.")
+        raise InvalidCookieError("Cookie ssid inválido ou expirado. Obtenha um novo ssid.")
 
     if init_data.get("type") != "auth":
-        raise AuthenticationError(f"Resposta inesperada etapa 1: {init_data.get('type')!r}")
+        raise AuthenticationError(
+            f"Resposta inesperada na etapa 1 (type={init_data.get('type')!r})"
+        )
 
-    merged = {**cookies, **resp_cookies}
+    # Etapa 2 — completa o fluxo reusando o ssid nos cookies
+    merged = {"ssid": ssid, **resp_cookies}
 
     async with session.put(
         _AUTH_URL,
@@ -180,24 +149,19 @@ async def _fetch_riot_client_token(ssid: str, session: aiohttp.ClientSession) ->
     ) as resp:
         complete_data = await resp.json(content_type=None)
 
-    log.debug("Etapa 2 type=%s error=%s", complete_data.get("type"), complete_data.get("error"))
+    log.debug("Etapa 2 — type=%s", complete_data.get("type"))
 
     if complete_data.get("type") == "response":
-        return _extract_access_token_from_uri(complete_data["response"]["parameters"]["uri"])
+        uri = complete_data["response"]["parameters"]["uri"]
+        return _extract_access_token_from_uri(uri)
 
-    _MULTI_COOKIE_HINT = (
-        "Tente fornecer mais cookies separados por virgula:\n"
-        "`ssid=VALOR,tdid=VALOR,__Secure-session_state=VALOR`\n"
-        "Encontre em: DevTools > Application > Cookies > auth.riotgames.com"
-    )
-
-    if complete_data.get("error") == "auth_failure" or complete_data.get("type") == "auth":
+    if complete_data.get("type") == "error":
         raise InvalidCookieError(
-            f"ssid insuficiente para autenticar.\n\n{_MULTI_COOKIE_HINT}"
+            f"Falha na auth ({complete_data.get('error', '?')}). O ssid pode ter expirado."
         )
 
     raise AuthenticationError(
-        f"Resposta inesperada etapa 2: {complete_data}"
+        f"Resposta inesperada na etapa 2 (type={complete_data.get('type')!r}): {complete_data}"
     )
 
 
